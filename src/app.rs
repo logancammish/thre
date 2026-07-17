@@ -7,7 +7,10 @@ use std::{
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+        MouseButton, MouseEvent, MouseEventKind,
+    },
     execute, queue,
     style::{
         Attribute, Color, Colored, Print, ResetColor, SetAttribute, SetBackgroundColor,
@@ -15,6 +18,7 @@ use crossterm::{
     },
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     config::Config,
@@ -60,13 +64,19 @@ struct Terminal;
 impl Terminal {
     fn enter() -> io::Result<Self> {
         terminal::enable_raw_mode()?;
-        execute!(stdout(), EnterAlternateScreen, Hide)?;
+        execute!(stdout(), EnterAlternateScreen, EnableMouseCapture, Hide)?;
         Ok(Self)
     }
 }
 impl Drop for Terminal {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), Show, LeaveAlternateScreen, ResetColor);
+        let _ = execute!(
+            stdout(),
+            DisableMouseCapture,
+            Show,
+            LeaveAlternateScreen,
+            ResetColor
+        );
         let _ = terminal::disable_raw_mode();
     }
 }
@@ -119,12 +129,99 @@ impl App {
             if event::poll(Duration::from_millis(250))? {
                 match event::read()? {
                     Event::Key(k) if k.kind == event::KeyEventKind::Press => self.key(k)?,
+                    Event::Mouse(mouse) => self.mouse(mouse),
                     Event::Resize(_, _) => {}
                     _ => {}
                 }
             }
         }
         Ok(())
+    }
+
+    fn mouse(&mut self, mouse: MouseEvent) {
+        if self.help || self.prompt.is_some() {
+            return;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if mouse.row == 0 {
+                    self.click_tab(mouse.column as usize);
+                } else {
+                    self.click_content(mouse.column as usize, mouse.row.saturating_sub(1) as usize);
+                }
+            }
+            MouseEventKind::ScrollDown => self.scroll(3),
+            MouseEventKind::ScrollUp => self.scroll(-3),
+            _ => {}
+        }
+    }
+
+    fn click_tab(&mut self, x: usize) {
+        self.ensure_current_tab();
+        let mut start = 0;
+        for (index, tab) in self.tabs.iter().enumerate() {
+            let width = tab_label(tab, index == self.active_tab).width();
+            if x >= start && x < start + width {
+                let direction = index as i32 - self.active_tab as i32;
+                if direction != 0 {
+                    self.switch_tab(direction);
+                }
+                return;
+            }
+            start += width;
+        }
+    }
+
+    fn click_content(&mut self, x: usize, y: usize) {
+        let (width, height) = terminal::size().unwrap_or((80, 24));
+        let content_height = height.saturating_sub(3) as usize;
+        if y >= content_height {
+            return;
+        }
+        let digits = self.lines.len().to_string().len();
+        let gutter = if self.config.line_numbers {
+            digits + 2
+        } else {
+            1
+        };
+        let available = (width as usize).saturating_sub(gutter).max(1);
+        let mut visual_y = 0;
+        for row in self.top..self.lines.len() {
+            let starts = if self.config.wrap {
+                wrap_starts(&self.lines[row], available)
+            } else {
+                vec![self.left]
+            };
+            let rows = starts.len();
+            if y < visual_y + rows {
+                let segment = if self.config.wrap { y - visual_y } else { 0 };
+                let start = starts[segment];
+                let target_cell = x.saturating_sub(gutter);
+                self.row = row;
+                let tail: String = self.lines[row].chars().skip(start).collect();
+                self.col = start + cell_to_char(&tail, target_cell);
+                self.keep_visible();
+                return;
+            }
+            visual_y += rows;
+            if visual_y > y {
+                break;
+            }
+        }
+    }
+
+    fn scroll(&mut self, amount: i32) {
+        if amount > 0 {
+            let delta = amount as usize;
+            let actual = delta.min(self.lines.len().saturating_sub(1).saturating_sub(self.top));
+            self.top += actual;
+            self.row = (self.row + actual).min(self.lines.len() - 1);
+        } else {
+            let actual = ((-amount) as usize).min(self.top);
+            self.top -= actual;
+            self.row = self.row.saturating_sub(actual);
+        }
+        self.col = self.col.min(self.line_len());
     }
 
     pub fn add_startup_file(&mut self, path: PathBuf) -> io::Result<()> {
@@ -522,13 +619,7 @@ impl App {
         }
         let mut tab_text = String::new();
         for (index, tab) in self.tabs.iter().enumerate() {
-            let name = tab.path.file_name().unwrap_or_default().to_string_lossy();
-            let mark = if tab.dirty { " •" } else { "" };
-            if index == self.active_tab {
-                tab_text.push_str(&format!("  [{}{}] ", name, mark));
-            } else {
-                tab_text.push_str(&format!("  {}{}  ", name, mark));
-            }
+            tab_text.push_str(&tab_label(tab, index == self.active_tab));
         }
         queue!(
             out,
@@ -543,7 +634,7 @@ impl App {
         let content_h = h.saturating_sub(status_rows + shortcut_rows + content_start) as usize;
         let digits = self.lines.len().to_string().len();
         let gutter = if self.config.line_numbers {
-            digits + 3
+            digits + 2
         } else {
             1
         };
@@ -551,9 +642,8 @@ impl App {
         let mut screen_y = 0usize;
         let mut cursor_y = 0usize;
         for r in self.top..self.lines.len() {
-            let len = self.lines[r].chars().count();
             let starts: Vec<usize> = if self.config.wrap {
-                (0..cmp::max(1, len)).step_by(available).collect()
+                wrap_starts(&self.lines[r], available)
             } else {
                 vec![self.left]
             };
@@ -656,11 +746,21 @@ impl App {
             )?
         }
         if self.prompt.is_none() {
-            let visual_col = if self.config.wrap {
-                self.col % available
+            let cursor_start = if self.config.wrap {
+                wrap_starts(&self.lines[self.row], available)
+                    .into_iter()
+                    .take_while(|start| *start <= self.col)
+                    .last()
+                    .unwrap_or(0)
             } else {
-                self.col.saturating_sub(self.left)
+                self.left
             };
+            let before_cursor: String = self.lines[self.row]
+                .chars()
+                .skip(cursor_start)
+                .take(self.col.saturating_sub(cursor_start))
+                .collect();
+            let visual_col = before_cursor.width();
             let x = (gutter + visual_col).min(w.saturating_sub(1) as usize) as u16;
             queue!(
                 out,
@@ -707,6 +807,9 @@ impl App {
             "  Ctrl+O / N    Open file / new tab",
             "  Ctrl+Tab      Next tab",
             "  F3            Rename current file",
+            "  Mouse click   Place cursor",
+            "  Mouse wheel   Scroll document",
+            "  Shift+drag    Select terminal text",
             "  Ctrl+F        Find text",
             "  Ctrl+G        Go to line",
             "  Ctrl+W        Toggle soft wrap",
@@ -747,6 +850,42 @@ impl App {
 fn char_to_byte(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
 }
+fn cell_to_char(s: &str, target: usize) -> usize {
+    let mut cells = 0;
+    for (index, character) in s.chars().enumerate() {
+        let width = character.width().unwrap_or(0);
+        if cells + width > target {
+            return index;
+        }
+        cells += width;
+    }
+    s.chars().count()
+}
+fn wrap_starts(s: &str, width: usize) -> Vec<usize> {
+    if s.is_empty() {
+        return vec![0];
+    }
+    let mut starts = vec![0];
+    let mut cells = 0;
+    for (index, character) in s.chars().enumerate() {
+        let char_width = character.width().unwrap_or(0);
+        if cells > 0 && cells + char_width > width {
+            starts.push(index);
+            cells = 0;
+        }
+        cells += char_width;
+    }
+    starts
+}
+fn tab_label(tab: &App, active: bool) -> String {
+    let name = tab.path.file_name().unwrap_or_default().to_string_lossy();
+    let mark = if tab.dirty { " •" } else { "" };
+    if active {
+        format!("  [{name}{mark}] ")
+    } else {
+        format!("  {name}{mark}  ")
+    }
+}
 fn fit(s: &str, width: usize) -> String {
     let mut v: String = s.chars().take(width).collect();
     let n = v.chars().count();
@@ -781,4 +920,24 @@ fn bar(
         SetAttribute(Attribute::Reset)
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_terminal_cells_to_character_positions() {
+        assert_eq!(cell_to_char("a界b", 0), 0);
+        assert_eq!(cell_to_char("a界b", 1), 1);
+        assert_eq!(cell_to_char("a界b", 2), 1);
+        assert_eq!(cell_to_char("a界b", 3), 2);
+        assert_eq!(cell_to_char("a界b", 4), 3);
+    }
+
+    #[test]
+    fn wraps_without_splitting_wide_characters() {
+        assert_eq!(wrap_starts("ab界cd", 4), vec![0, 3]);
+        assert_eq!(wrap_starts("", 4), vec![0]);
+    }
 }

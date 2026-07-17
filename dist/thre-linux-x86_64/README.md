@@ -71,6 +71,9 @@ The shortcut strip is always visible by default, and `F1` opens the complete ref
 | `Ctrl+O` / `Ctrl+N` | Open a file in a tab / create a new tab |
 | `Ctrl+Tab` | Switch to the next tab |
 | `F3` | Rename the current file |
+| Mouse click | Place the editing cursor |
+| Mouse wheel | Scroll while preserving the cursor position |
+| `Shift` + mouse drag | Select text for terminal copying |
 | `Ctrl+F` | Find text |
 | `Ctrl+G` | Go to a line |
 | `Ctrl+W` | Toggle soft wrapping |
@@ -104,6 +107,6 @@ Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Making a release
 
-Run `scripts/package-release.sh` on Linux x86-64, create the matching `v0.1.0`
+Run `scripts/package-release.sh` on Linux x86-64, create the matching `0.1.1`
 GitHub release, and upload both files produced in `dist/`. The archive name is
 the stable filename used by `install.sh`.

@@ -5,6 +5,20 @@ All notable changes to `thre` are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-18
+
+### Added
+
+- Click-to-position mouse editing across normal and wrapped lines
+- Mouse-wheel document scrolling that preserves the cursor's screen position
+- Terminal text selection and copying through `Shift`+drag
+
+### Fixed
+
+- Cursor and insertion-point rendering being offset by the line-number gutter
+- Cursor placement around wide Unicode characters
+- Scroll-wheel input moving the editing cursor unexpectedly
+
 ## [0.1.0] - 2026-07-18
 
 ### Added
@@ -16,5 +30,6 @@ All notable changes to `thre` are documented here. This project follows
 - Search, go-to-line, configurable line numbers, and XDG configuration
 - Safe quitting with `Ctrl+Q` and immediate exit with `Ctrl+X`
 
-[Unreleased]: https://github.com/logancammish/thre/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/logancammish/thre/compare/0.1.1...HEAD
+[0.1.1]: https://github.com/logancammish/thre/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/logancammish/thre/releases/tag/0.1.0
