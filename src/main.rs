@@ -17,7 +17,7 @@ Options:
   -l, --language <LANG>    Override syntax detection
       --no-line-numbers    Hide line numbers
       --no-wrap            Disable soft wrapping
-      --list-themes        Show available themes
+      --list-themes        Show built-in and custom themes
   -h, --help               Show this help
   -V, --version            Show version
 
@@ -46,7 +46,7 @@ fn parse_args() -> Result<Args, String> {
                 std::process::exit(0);
             }
             "--list-themes" => {
-                println!("midnight\ngraphite\npaper\nember\nocean");
+                println!("{}", theme::names().join("\n"));
                 std::process::exit(0);
             }
             "-t" | "--theme" => out.theme = Some(args.next().ok_or("--theme needs a name")?),
@@ -69,7 +69,7 @@ fn parse_args() -> Result<Args, String> {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     if let Some(name) = args.theme.as_deref() {
-        if !theme::NAMES.contains(&name.to_ascii_lowercase().as_str()) {
+        if !theme::exists(name) {
             return Err(format!("unknown theme: {name} (try `thre --list-themes`)").into());
         }
         if args.files.is_empty() {

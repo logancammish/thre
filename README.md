@@ -8,8 +8,8 @@ The name is short for “The Third File Reader.” That is the only ceremony it 
 
 - Responsive full-screen interface that adapts to the terminal
 - Direct, modeless editing with safe unsaved-change prompts
-- Syntax highlighting for Python, Rust, Java, Lua, Scala, C, and C++
-- Five built-in themes: Midnight, Graphite, Paper, Ember, and Ocean
+- Syntax highlighting for Python, Rust, Java, Lua, Scala, C, C++, and shell scripts
+- Five built-in themes plus user-defined themes and syntax definitions
 - Soft wrapping, horizontal scrolling, line numbers, search, and go-to-line
 - Automatic language detection with an explicit override
 - Small dependency footprint and a single release binary
@@ -99,6 +99,45 @@ Command-line options take precedence over the configuration file. Unknown config
 
 Running `thre -t THEME` without a file updates the configured default and exits. Supplying both a theme and files applies it to that editing session.
 
+### Custom themes
+
+Add a file named `NAME.theme` to `~/.config/thre/themes` (or the equivalent
+`$XDG_CONFIG_HOME` path), then select it with `thre --theme NAME`. Unspecified
+colors inherit from Midnight. Colors use six-digit RGB values:
+
+```ini
+background = #101418
+foreground = #e6edf3
+muted = #7d8590
+accent = #58a6ff
+status_bg = #202830
+status_fg = #ffffff
+selection = #29384a
+keyword = #ff7b72
+string = #a5d6ff
+comment = #8b949e
+number = #79c0ff
+type = #ffa657
+function = #d2a8ff
+```
+
+Custom themes appear in `thre --list-themes` and in the `F2`/`Ctrl+T` theme cycle.
+
+### Custom syntax highlighting
+
+Add `NAME.syntax` under `~/.config/thre/syntaxes`. Definitions are intentionally
+small and comma-separated:
+
+```ini
+name = Makefile DSL
+extensions = mk, mak
+line_comment = #
+keywords = include, ifdef, ifndef, else, endif, define, endef
+```
+
+The `extensions` values can also be used with `--language`. Shell scripts are
+built in and detected automatically for `.sh`, `.bash`, `.zsh`, and `.ksh` files.
+
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
@@ -107,6 +146,6 @@ Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Making a release
 
-Run `scripts/package-release.sh` on Linux x86-64, create the matching `0.1.1`
+Run `scripts/package-release.sh` on Linux x86-64, create the matching `0.2.0`
 GitHub release, and upload both files produced in `dist/`. The archive name is
 the stable filename used by `install.sh`.

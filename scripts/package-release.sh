@@ -18,8 +18,10 @@ cargo build --release --locked
 rm -rf dist
 mkdir -p "dist/${asset}"
 install -m 0755 target/release/thre "dist/${asset}/thre"
-cp README.md LICENSE CHANGELOG.md RELEASE_NOTES_0.1.1.md "dist/${asset}/"
-tar -C "dist/${asset}" -czf "dist/${asset}.tar.gz" thre README.md LICENSE CHANGELOG.md RELEASE_NOTES_0.1.1.md
+release_notes="RELEASE_NOTES_${version}.md"
+[ -f "$release_notes" ] || { printf 'Missing %s\n' "$release_notes" >&2; exit 1; }
+cp README.md LICENSE CHANGELOG.md "$release_notes" "dist/${asset}/"
+tar -C "dist/${asset}" -czf "dist/${asset}.tar.gz" thre README.md LICENSE CHANGELOG.md "$release_notes"
 
 if command -v sha256sum >/dev/null 2>&1; then
     (cd dist && sha256sum "${asset}.tar.gz" > "${asset}.tar.gz.sha256")

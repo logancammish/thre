@@ -1,8 +1,10 @@
+use std::{env, fs, io, path::PathBuf};
+
 use crossterm::style::Color;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Theme {
-    pub name: &'static str,
+    pub name: String,
     pub background: Color,
     pub foreground: Color,
     pub muted: Color,
@@ -18,10 +20,10 @@ pub struct Theme {
     pub function: Color,
 }
 
-pub fn get(name: &str) -> Theme {
+fn builtin(name: &str) -> Theme {
     match name.to_ascii_lowercase().as_str() {
         "graphite" => Theme {
-            name: "graphite",
+            name: "graphite".into(),
             background: Color::Rgb {
                 r: 24,
                 g: 24,
@@ -85,7 +87,7 @@ pub fn get(name: &str) -> Theme {
             },
         },
         "paper" => Theme {
-            name: "paper",
+            name: "paper".into(),
             background: Color::Rgb {
                 r: 250,
                 g: 248,
@@ -153,7 +155,7 @@ pub fn get(name: &str) -> Theme {
             },
         },
         "ember" => Theme {
-            name: "ember",
+            name: "ember".into(),
             background: Color::Rgb {
                 r: 29,
                 g: 20,
@@ -221,7 +223,7 @@ pub fn get(name: &str) -> Theme {
             },
         },
         "ocean" => Theme {
-            name: "ocean",
+            name: "ocean".into(),
             background: Color::Rgb { r: 8, g: 25, b: 35 },
             foreground: Color::Rgb {
                 r: 215,
@@ -285,7 +287,7 @@ pub fn get(name: &str) -> Theme {
             },
         },
         _ => Theme {
-            name: "midnight",
+            name: "midnight".into(),
             background: Color::Rgb {
                 r: 11,
                 g: 17,
@@ -356,3 +358,115 @@ pub fn get(name: &str) -> Theme {
 }
 
 pub const NAMES: [&str; 5] = ["midnight", "graphite", "paper", "ember", "ocean"];
+
+pub fn get(name: &str) -> Theme {
+    load_custom(name).unwrap_or_else(|| builtin(name))
+}
+
+pub fn exists(name: &str) -> bool {
+    NAMES.iter().any(|item| item.eq_ignore_ascii_case(name))
+        || custom_path(name).is_some_and(|p| p.is_file())
+}
+
+pub fn names() -> Vec<String> {
+    let mut result: Vec<String> = NAMES.iter().map(|s| (*s).into()).collect();
+    if let Some(dir) = themes_dir() {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("theme") {
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !result.iter().any(|item| item.eq_ignore_ascii_case(name)) {
+                            result.push(name.into());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+fn themes_dir() -> Option<PathBuf> {
+    env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .map(|p| p.join("thre/themes"))
+}
+
+fn custom_path(name: &str) -> Option<PathBuf> {
+    if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+        return None;
+    }
+    Some(themes_dir()?.join(format!("{name}.theme")))
+}
+
+fn load_custom(name: &str) -> Option<Theme> {
+    let text = fs::read_to_string(custom_path(name)?).ok()?;
+    let mut theme = builtin("midnight");
+    theme.name = name.into();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with(';') || line.starts_with("# ") {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let Ok(color) = parse_color(value.trim().trim_matches(['"', '\''])) else {
+            continue;
+        };
+        match key.trim() {
+            "background" => theme.background = color,
+            "foreground" => theme.foreground = color,
+            "muted" => theme.muted = color,
+            "accent" => theme.accent = color,
+            "status_bg" => theme.status_bg = color,
+            "status_fg" => theme.status_fg = color,
+            "selection" => theme.selection = color,
+            "keyword" => theme.keyword = color,
+            "string" => theme.string = color,
+            "comment" => theme.comment = color,
+            "number" => theme.number = color,
+            "type" | "type_name" => theme.type_name = color,
+            "function" => theme.function = color,
+            _ => {}
+        }
+    }
+    Some(theme)
+}
+
+fn parse_color(value: &str) -> io::Result<Color> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    if hex.len() != 6 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "color must be #RRGGBB",
+        ));
+    }
+    let number = u32::from_str_radix(hex, 16)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid color"))?;
+    Ok(Color::Rgb {
+        r: (number >> 16) as u8,
+        g: (number >> 8) as u8,
+        b: number as u8,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_custom_theme_colors() {
+        assert_eq!(
+            parse_color("#12abEF").unwrap(),
+            Color::Rgb {
+                r: 0x12,
+                g: 0xab,
+                b: 0xef
+            }
+        );
+        assert!(parse_color("blue").is_err());
+    }
+}

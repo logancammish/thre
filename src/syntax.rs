@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -13,9 +16,9 @@ pub enum Kind {
 
 #[derive(Clone)]
 pub struct Language {
-    pub name: &'static str,
-    keywords: &'static [&'static str],
-    line_comment: &'static str,
+    pub name: String,
+    keywords: Vec<String>,
+    line_comment: String,
 }
 
 const PYTHON: &[&str] = &[
@@ -195,6 +198,18 @@ const C: &[&str] = &[
     "volatile",
     "while",
 ];
+const SHELL: &[&str] = &[
+    "case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select",
+    "then", "time", "until", "while",
+];
+
+fn language(name: &str, keywords: &[&str], line_comment: &str) -> Language {
+    Language {
+        name: name.into(),
+        keywords: keywords.iter().map(|word| (*word).into()).collect(),
+        line_comment: line_comment.into(),
+    }
+}
 
 pub fn detect(path: &Path, override_name: Option<&str>) -> Option<Language> {
     let ext = override_name
@@ -202,38 +217,86 @@ pub fn detect(path: &Path, override_name: Option<&str>) -> Option<Language> {
         .or_else(|| path.extension()?.to_str().map(str::to_owned))?
         .to_ascii_lowercase();
     match ext.as_str() {
-        "py" | "python" => Some(Language {
-            name: "Python",
-            keywords: PYTHON,
-            line_comment: "#",
-        }),
-        "rs" | "rust" => Some(Language {
-            name: "Rust",
-            keywords: RUST,
-            line_comment: "//",
-        }),
-        "java" => Some(Language {
-            name: "Java",
-            keywords: JAVA,
-            line_comment: "//",
-        }),
-        "lua" => Some(Language {
-            name: "Lua",
-            keywords: LUA,
-            line_comment: "--",
-        }),
-        "scala" | "sc" => Some(Language {
-            name: "Scala",
-            keywords: SCALA,
-            line_comment: "//",
-        }),
-        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hxx" | "c++" => Some(Language {
-            name: "C/C++",
-            keywords: C,
-            line_comment: "//",
-        }),
-        _ => None,
+        "py" | "python" => Some(language("Python", PYTHON, "#")),
+        "rs" | "rust" => Some(language("Rust", RUST, "//")),
+        "java" => Some(language("Java", JAVA, "//")),
+        "lua" => Some(language("Lua", LUA, "--")),
+        "scala" | "sc" => Some(language("Scala", SCALA, "//")),
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hxx" | "c++" => {
+            Some(language("C/C++", C, "//"))
+        }
+        "sh" | "bash" | "zsh" | "ksh" | "shell" => Some(language("Shell", SHELL, "#")),
+        _ => load_custom(&ext),
     }
+}
+
+fn syntaxes_dir() -> Option<PathBuf> {
+    env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .map(|p| p.join("thre/syntaxes"))
+}
+
+fn load_custom(requested: &str) -> Option<Language> {
+    let entries = fs::read_dir(syntaxes_dir()?).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("syntax") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let (language, extensions) = parse_definition(&text);
+        if extensions
+            .iter()
+            .any(|ext| ext.eq_ignore_ascii_case(requested))
+        {
+            return Some(language);
+        }
+    }
+    None
+}
+
+fn parse_definition(text: &str) -> (Language, Vec<String>) {
+    let mut name = None;
+    let mut extensions = Vec::new();
+    let mut keywords = Vec::new();
+    let mut line_comment = String::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().trim_matches(['"', '\'']);
+        match key.trim() {
+            "name" => name = Some(value.to_owned()),
+            "extensions" => extensions = list(value),
+            "keywords" => keywords = list(value),
+            "line_comment" => line_comment = value.to_owned(),
+            _ => {}
+        }
+    }
+    (
+        Language {
+            name: name.unwrap_or_else(|| "Custom".into()),
+            keywords,
+            line_comment,
+        },
+        extensions,
+    )
+}
+
+fn list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 pub fn highlight(line: &str, lang: Option<&Language>) -> Vec<(String, Kind)> {
@@ -245,7 +308,7 @@ pub fn highlight(line: &str, lang: Option<&Language>) -> Vec<(String, Kind)> {
     let mut i = 0;
     while i < chars.len() {
         let rest: String = chars[i..].iter().collect();
-        if rest.starts_with(lang.line_comment) {
+        if !lang.line_comment.is_empty() && rest.starts_with(&lang.line_comment) {
             result.push((rest, Kind::Comment));
             break;
         }
@@ -286,7 +349,7 @@ pub fn highlight(line: &str, lang: Option<&Language>) -> Vec<(String, Kind)> {
                 i += 1
             }
             let word: String = chars[start..i].iter().collect();
-            let kind = if lang.keywords.contains(&word.as_str()) {
+            let kind = if lang.keywords.contains(&word) {
                 Kind::Keyword
             } else if word.chars().next().is_some_and(char::is_uppercase) {
                 Kind::Type
@@ -309,7 +372,7 @@ pub fn highlight(line: &str, lang: Option<&Language>) -> Vec<(String, Kind)> {
             if chars[i..]
                 .iter()
                 .collect::<String>()
-                .starts_with(lang.line_comment)
+                .starts_with(&lang.line_comment)
             {
                 break;
             }
@@ -353,5 +416,27 @@ mod tests {
             "class Example { public: void run(); };",
             "class",
         );
+        assert_keyword("deploy.sh", "if test -f app; then echo yes; fi", "then");
+        assert_keyword(
+            "deploy.bash",
+            "for item in one two; do echo $item; done",
+            "for",
+        );
+    }
+
+    #[test]
+    fn parses_custom_syntax_definitions() {
+        let (language, extensions) = parse_definition(
+            "name = Test DSL\nextensions = tdsl, testdsl\nline_comment = ;;\nkeywords = begin, end",
+        );
+        assert_eq!(language.name, "Test DSL");
+        assert_eq!(extensions, ["tdsl", "testdsl"]);
+        let tokens = highlight("begin value ;; note", Some(&language));
+        assert!(tokens
+            .iter()
+            .any(|(text, kind)| text == "begin" && *kind == Kind::Keyword));
+        assert!(tokens
+            .iter()
+            .any(|(text, kind)| text == ";; note" && *kind == Kind::Comment));
     }
 }

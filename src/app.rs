@@ -536,7 +536,7 @@ impl App {
             self.config.clone(),
             true,
         )?;
-        tab.theme = self.theme;
+        tab.theme = self.theme.clone();
         self.tabs.push(tab.snapshot());
         self.active_tab = self.tabs.len() - 2;
         self.switch_tab(1);
@@ -553,7 +553,7 @@ impl App {
         self.ensure_current_tab();
         let content = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
         let mut tab = App::new(path, content, bytes.len(), self.config.clone(), false)?;
-        tab.theme = self.theme;
+        tab.theme = self.theme.clone();
         self.tabs.push(tab.snapshot());
         self.active_tab = self.tabs.len() - 2;
         self.switch_tab(1);
@@ -593,11 +593,12 @@ impl App {
         }
     }
     fn next_theme(&mut self) {
-        let i = theme::NAMES
+        let names = theme::names();
+        let i = names
             .iter()
-            .position(|n| *n == self.theme.name)
+            .position(|name| name == &self.theme.name)
             .unwrap_or(0);
-        self.theme = theme::get(theme::NAMES[(i + 1) % theme::NAMES.len()]);
+        self.theme = theme::get(&names[(i + 1) % names.len()]);
         self.message = format!("Theme: {}", self.theme.name)
     }
 
@@ -692,7 +693,7 @@ impl App {
             let lang = self
                 .language
                 .as_ref()
-                .map(|l| l.name)
+                .map(|l| l.name.as_str())
                 .unwrap_or("Plain text");
             let dirty = if self.dirty { " • modified" } else { "" };
             let left = format!(

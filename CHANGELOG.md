@@ -5,6 +5,15 @@ All notable changes to `thre` are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-18
+
+### Added
+
+- Custom themes loaded from the XDG `thre/themes` configuration directory
+- Custom syntax definitions with configurable extensions, keywords, and line comments
+- Built-in syntax highlighting for shell scripts, including `.sh`, `.bash`, `.zsh`, and `.ksh`
+- Custom themes in `--list-themes` and the in-editor theme cycle
+
 ## [0.1.1] - 2026-07-18
 
 ### Added
@@ -30,6 +39,7 @@ All notable changes to `thre` are documented here. This project follows
 - Search, go-to-line, configurable line numbers, and XDG configuration
 - Safe quitting with `Ctrl+Q` and immediate exit with `Ctrl+X`
 
-[Unreleased]: https://github.com/logancammish/thre/compare/0.1.1...HEAD
+[Unreleased]: https://github.com/logancammish/thre/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/logancammish/thre/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/logancammish/thre/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/logancammish/thre/releases/tag/0.1.0
