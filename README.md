@@ -143,9 +143,3 @@ built in and detected automatically for `.sh`, `.bash`, `.zsh`, and `.ksh` files
 GPL-3.0-only. See [LICENSE](LICENSE).
 
 Release history is recorded in [CHANGELOG.md](CHANGELOG.md).
-
-## Making a release
-
-Run `scripts/package-release.sh` on Linux x86-64, create the matching `0.2.0`
-GitHub release, and upload both files produced in `dist/`. The archive name is
-the stable filename used by `install.sh`.
