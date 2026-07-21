@@ -23,8 +23,10 @@ Install the latest Linux release into `~/.local/bin`:
 curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/logancammish/thre/main/install.sh | sh
 ```
 
-Set `THRE_INSTALL_DIR` to choose another destination. The installer currently
-supports Linux on x86-64 and requires either `curl` or `wget`.
+The installer asks whether to download the x86-64 or ARM64 build; pressing Enter
+selects x86-64. Set `THRE_ARCH=aarch64` to skip the prompt for ARM64 automation,
+or set `THRE_INSTALL_DIR` to choose another destination. Linux and either `curl`
+or `wget` are required.
 
 Alternatively, build the release binary with a current stable Rust toolchain:
 
@@ -50,6 +52,7 @@ thre [OPTIONS] <FILE ...>
 -l, --language <LANG>    Override automatic syntax detection
     --no-line-numbers    Hide the line-number gutter
     --no-wrap            Use horizontal scrolling
+    --read_markdown      Render Markdown formatting while reading
     --list-themes        Print available theme names
 -h, --help               Show command-line help
 -V, --version            Show the version
@@ -65,6 +68,9 @@ The shortcut strip is always visible by default, and `F1` opens the complete ref
 | Home / End | Start / end of line |
 | Page Up / Page Down | Move one screen |
 | Enter, Backspace, Delete | Edit normally |
+| `Ctrl+A` | Select all text |
+| `Ctrl+C` | Copy selected text to the terminal clipboard |
+| `Shift` + arrow keys / mouse drag | Select text |
 | `Ctrl+S` | Save |
 | `Ctrl+Q` | Quit; confirm if modified |
 | `Ctrl+X` | Exit immediately without a warning |
@@ -73,7 +79,6 @@ The shortcut strip is always visible by default, and `F1` opens the complete ref
 | `F3` | Rename the current file |
 | Mouse click | Place the editing cursor |
 | Mouse wheel | Scroll while preserving the cursor position |
-| `Shift` + mouse drag | Select text for terminal copying |
 | `Ctrl+F` | Find text |
 | `Ctrl+G` | Go to a line |
 | `Ctrl+W` | Toggle soft wrapping |

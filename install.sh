@@ -20,9 +20,23 @@ case "$(uname -s)" in
     *) fail "only Linux is currently supported" ;;
 esac
 
-case "$(uname -m)" in
-    x86_64 | amd64) architecture="x86_64" ;;
-    *) fail "unsupported architecture: $(uname -m)" ;;
+architecture_choice="${THRE_ARCH:-}"
+if [ -z "$architecture_choice" ]; then
+    if [ -r /dev/tty ]; then
+        printf '%s\n' \
+            "Select your Linux architecture:" \
+            "  1) x86-64 (default)" \
+            "  2) ARM64 / AArch64" \
+            "" \
+            "Press Enter to install x86-64, or type 2 for ARM64: " >/dev/tty
+        IFS= read -r architecture_choice </dev/tty || architecture_choice=""
+    fi
+fi
+
+case "$architecture_choice" in
+    "" | 1 | x86_64 | amd64 | x86-64) architecture="x86_64" ;;
+    2 | aarch64 | arm64 | ARM64) architecture="aarch64" ;;
+    *) fail "unknown architecture selection: $architecture_choice" ;;
 esac
 
 asset="thre-${platform}-${architecture}.tar.gz"

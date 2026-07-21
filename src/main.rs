@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod markdown;
 mod syntax;
 mod theme;
 
@@ -17,6 +18,7 @@ Options:
   -l, --language <LANG>    Override syntax detection
       --no-line-numbers    Hide line numbers
       --no-wrap            Disable soft wrapping
+      --read_markdown      Render Markdown formatting while reading
       --list-themes        Show built-in and custom themes
   -h, --help               Show this help
   -V, --version            Show version
@@ -30,6 +32,7 @@ struct Args {
     language: Option<String>,
     line_numbers: Option<bool>,
     wrap: Option<bool>,
+    read_markdown: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -55,6 +58,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--no-line-numbers" => out.line_numbers = Some(false),
             "--no-wrap" => out.wrap = Some(false),
+            "--read_markdown" => out.read_markdown = true,
             "--" => {
                 out.files.extend(args.map(PathBuf::from));
                 break;
@@ -114,7 +118,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(v) = args.wrap {
         config.wrap = v;
     }
-    let mut app = App::new(path, content, bytes.len(), config, new_buffer)?;
+    let mut app = App::new(
+        path,
+        content,
+        bytes.len(),
+        config,
+        new_buffer,
+        args.read_markdown,
+    )?;
     for path in files {
         app.add_startup_file(path)?;
     }

@@ -1,6 +1,6 @@
 [package]
 name = "thre"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "A comfortable, configurable terminal file reader"
 license = "GPL-3.0-only"

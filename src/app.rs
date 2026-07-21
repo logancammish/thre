@@ -58,6 +58,8 @@ pub struct App {
     new_buffer: bool,
     tabs: Vec<App>,
     active_tab: usize,
+    selection_anchor: Option<(usize, usize)>,
+    read_markdown: bool,
 }
 
 struct Terminal;
@@ -88,6 +90,7 @@ impl App {
         size: usize,
         config: Config,
         new_buffer: bool,
+        read_markdown: bool,
     ) -> io::Result<Self> {
         let theme = theme::get(&config.theme);
         let language = syntax::detect(&path, config.language.as_deref());
@@ -116,6 +119,8 @@ impl App {
             new_buffer,
             tabs: Vec::new(),
             active_tab: 0,
+            selection_anchor: None,
+            read_markdown,
         })
     }
 
@@ -144,11 +149,18 @@ impl App {
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                self.selection_anchor = None;
                 if mouse.row == 0 {
                     self.click_tab(mouse.column as usize);
                 } else {
                     self.click_content(mouse.column as usize, mouse.row.saturating_sub(1) as usize);
                 }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some((self.row, self.col));
+                }
+                self.click_content(mouse.column as usize, mouse.row.saturating_sub(1) as usize);
             }
             MouseEventKind::ScrollDown => self.scroll(3),
             MouseEventKind::ScrollUp => self.scroll(-3),
@@ -237,7 +249,16 @@ impl App {
             return self.prompt_key(key);
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let before = (self.row, self.col);
         match (key.code, ctrl) {
+            (KeyCode::Char('a'), true) => {
+                self.selection_anchor = Some((0, 0));
+                self.row = self.lines.len() - 1;
+                self.col = self.line_len();
+                self.message = "Selected all".into();
+            }
+            (KeyCode::Char('c'), true) => self.copy_selection()?,
             (KeyCode::Char('x'), true) => self.quit = true,
             (KeyCode::Char('q'), true) => {
                 if self.dirty {
@@ -290,6 +311,26 @@ impl App {
             }
             (KeyCode::Char(c), false) | (KeyCode::Char(c), true) if !ctrl => self.insert(c),
             _ => {}
+        }
+        let movement = matches!(
+            key.code,
+            KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+        );
+        if movement {
+            if shift {
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some(before);
+                }
+            } else {
+                self.selection_anchor = None;
+            }
         }
         self.keep_visible();
         Ok(())
@@ -388,12 +429,14 @@ impl App {
     }
 
     fn insert(&mut self, c: char) {
+        self.delete_selection();
         let byte = char_to_byte(&self.lines[self.row], self.col);
         self.lines[self.row].insert(byte, c);
         self.col += 1;
         self.changed()
     }
     fn newline(&mut self) {
+        self.delete_selection();
         let byte = char_to_byte(&self.lines[self.row], self.col);
         let tail = self.lines[self.row].split_off(byte);
         self.row += 1;
@@ -402,6 +445,9 @@ impl App {
         self.changed()
     }
     fn backspace(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         if self.col > 0 {
             let a = char_to_byte(&self.lines[self.row], self.col - 1);
             let b = char_to_byte(&self.lines[self.row], self.col);
@@ -417,6 +463,9 @@ impl App {
         }
     }
     fn delete(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         if self.col < self.line_len() {
             let a = char_to_byte(&self.lines[self.row], self.col);
             let b = char_to_byte(&self.lines[self.row], self.col + 1);
@@ -432,6 +481,62 @@ impl App {
         self.dirty = true;
         self.message = "Modified".into();
         self.matches.clear()
+    }
+    fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.selection_anchor?;
+        let cursor = (self.row, self.col);
+        if anchor == cursor {
+            return None;
+        }
+        Some(if anchor < cursor {
+            (anchor, cursor)
+        } else {
+            (cursor, anchor)
+        })
+    }
+    fn selected(&self, row: usize, col: usize) -> bool {
+        self.selection()
+            .is_some_and(|(start, end)| (row, col) >= start && (row, col) < end)
+    }
+    fn delete_selection(&mut self) -> bool {
+        let Some(((sr, sc), (er, ec))) = self.selection() else {
+            return false;
+        };
+        if sr == er {
+            let a = char_to_byte(&self.lines[sr], sc);
+            let b = char_to_byte(&self.lines[sr], ec);
+            self.lines[sr].replace_range(a..b, "");
+        } else {
+            let prefix: String = self.lines[sr].chars().take(sc).collect();
+            let suffix: String = self.lines[er].chars().skip(ec).collect();
+            self.lines.splice(sr..=er, [format!("{prefix}{suffix}")]);
+        }
+        self.row = sr;
+        self.col = sc;
+        self.selection_anchor = None;
+        self.changed();
+        true
+    }
+    fn copy_selection(&mut self) -> io::Result<()> {
+        let Some(((sr, sc), (er, ec))) = self.selection() else {
+            self.message = "Nothing selected".into();
+            return Ok(());
+        };
+        let text = if sr == er {
+            self.lines[sr].chars().skip(sc).take(ec - sc).collect()
+        } else {
+            let mut parts = Vec::with_capacity(er - sr + 1);
+            parts.push(self.lines[sr].chars().skip(sc).collect::<String>());
+            parts.extend(self.lines[sr + 1..er].iter().cloned());
+            parts.push(self.lines[er].chars().take(ec).collect());
+            parts.join("\n")
+        };
+        // OSC 52 is supported by the major terminal emulators and works without
+        // adding a platform-specific clipboard dependency.
+        write!(stdout(), "\x1b]52;c;{}\x07", base64(text.as_bytes()))?;
+        stdout().flush()?;
+        self.message = format!("Copied {} characters", text.chars().count());
+        Ok(())
     }
     fn move_left(&mut self) {
         if self.col > 0 {
@@ -535,6 +640,7 @@ impl App {
             0,
             self.config.clone(),
             true,
+            self.read_markdown,
         )?;
         tab.theme = self.theme.clone();
         self.tabs.push(tab.snapshot());
@@ -552,7 +658,14 @@ impl App {
         }
         self.ensure_current_tab();
         let content = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
-        let mut tab = App::new(path, content, bytes.len(), self.config.clone(), false)?;
+        let mut tab = App::new(
+            path,
+            content,
+            bytes.len(),
+            self.config.clone(),
+            false,
+            self.read_markdown,
+        )?;
         tab.theme = self.theme.clone();
         self.tabs.push(tab.snapshot());
         self.active_tab = self.tabs.len() - 2;
@@ -679,8 +792,39 @@ impl App {
                     queue!(out, Print(" "))?
                 }
                 let line: String = self.lines[r].chars().skip(start).take(available).collect();
-                for (text, kind) in syntax::highlight(&line, self.language.as_ref()) {
-                    queue!(out, SetForegroundColor(self.color(kind)), Print(text))?
+                if self.read_markdown {
+                    let mut col = start;
+                    for span in crate::markdown::spans(&line) {
+                        queue!(
+                            out,
+                            SetAttribute(span.attribute),
+                            SetForegroundColor(self.theme.foreground)
+                        )?;
+                        for ch in span.text.chars() {
+                            let bg = if self.selected(r, col) {
+                                self.theme.selection
+                            } else {
+                                self.theme.background
+                            };
+                            queue!(out, SetBackgroundColor(bg), Print(ch))?;
+                            col += 1;
+                        }
+                    }
+                    queue!(out, SetAttribute(Attribute::Reset))?;
+                } else {
+                    let mut col = start;
+                    for (text, kind) in syntax::highlight(&line, self.language.as_ref()) {
+                        queue!(out, SetForegroundColor(self.color(kind)))?;
+                        for ch in text.chars() {
+                            let bg = if self.selected(r, col) {
+                                self.theme.selection
+                            } else {
+                                self.theme.background
+                            };
+                            queue!(out, SetBackgroundColor(bg), Print(ch))?;
+                            col += 1;
+                        }
+                    }
                 }
                 screen_y += 1
             }
@@ -690,11 +834,14 @@ impl App {
         }
         if self.config.show_status {
             let y = h - shortcut_rows - 1;
-            let lang = self
-                .language
-                .as_ref()
-                .map(|l| l.name.as_str())
-                .unwrap_or("Plain text");
+            let lang = if self.read_markdown {
+                "Markdown"
+            } else {
+                self.language
+                    .as_ref()
+                    .map(|l| l.name.as_str())
+                    .unwrap_or("Plain text")
+            };
             let dirty = if self.dirty { " • modified" } else { "" };
             let left = format!(
                 "  {}{}",
@@ -800,6 +947,9 @@ impl App {
             "  Enter         New line",
             "  Backspace     Remove previous character",
             "  Delete        Remove next character",
+            "  Ctrl+A        Select all text",
+            "  Ctrl+C        Copy selection",
+            "  Shift+Arrows  Extend selection",
             "",
             "Commands",
             "  Ctrl+S        Save",
@@ -810,7 +960,7 @@ impl App {
             "  F3            Rename current file",
             "  Mouse click   Place cursor",
             "  Mouse wheel   Scroll document",
-            "  Shift+drag    Select terminal text",
+            "  Mouse drag    Select text",
             "  Ctrl+F        Find text",
             "  Ctrl+G        Go to line",
             "  Ctrl+W        Toggle soft wrap",
@@ -850,6 +1000,28 @@ impl App {
 
 fn char_to_byte(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
+}
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let value = (chunk[0] as u32) << 16
+            | (chunk.get(1).copied().unwrap_or(0) as u32) << 8
+            | chunk.get(2).copied().unwrap_or(0) as u32;
+        out.push(ALPHABET[((value >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((value >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((value >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(value & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 fn cell_to_char(s: &str, target: usize) -> usize {
     let mut cells = 0;

@@ -5,6 +5,20 @@ All notable changes to `thre` are documented here. This project follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-21
+
+### Added
+
+- Document selection with `Ctrl+A`, `Shift`+arrow keys, and mouse dragging
+- Clipboard copying for selected text with `Ctrl+C`
+- Rudimentary Markdown rendering through the new `--read_markdown` option
+- ARM64 Linux release builds and interactive architecture selection in the installer
+
+### Fixed
+
+- Text being impossible to select while mouse capture is enabled
+- Editing operations not replacing or removing the active selection
+
 ## [0.2.0] - 2026-07-18
 
 ### Added
@@ -39,7 +53,8 @@ All notable changes to `thre` are documented here. This project follows
 - Search, go-to-line, configurable line numbers, and XDG configuration
 - Safe quitting with `Ctrl+Q` and immediate exit with `Ctrl+X`
 
-[Unreleased]: https://github.com/logancammish/thre/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/logancammish/thre/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/logancammish/thre/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/logancammish/thre/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/logancammish/thre/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/logancammish/thre/releases/tag/0.1.0
